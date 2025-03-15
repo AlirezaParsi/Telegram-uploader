@@ -20,18 +20,25 @@ async def upload_file(file_path, bot_token, chat_id):
         # Set the caption to the original filename
         caption = f"File: {file_name}"
 
+        # Check file size (Telegram limit is 2 GB for bots)
+        file_size = os.path.getsize(file_path)
+        if file_size > 2000 * 1024 * 1024:  # 2 GB limit
+            raise ValueError("File size exceeds Telegram's 2 GB limit for bots.")
+
         # Upload the file with the correct filename and caption
         await client.send_file(
             chat_id,
             file_path,
             caption=caption,
-            file_name=file_name
+            file_name=file_name,
+            part_size_kb=512,  # Adjust chunk size for better upload performance
+            force_document=True  # Force upload as a document
         )
         print("File uploaded successfully with correct filename and caption!")
     except RPCError as e:
         print(f"Failed to upload file: {e}")
-    except ValueError:
-        print("Invalid chat ID. Please provide an integer chat ID.")
+    except ValueError as e:
+        print(f"Error: {e}")
     finally:
         await client.disconnect()
 
