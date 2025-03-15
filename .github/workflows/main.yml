@@ -78,15 +78,9 @@ jobs:
               exit 1
             fi
           else
-            # Handle direct links
+            # Handle direct links using aria2c as the default downloader
             FILE="$(basename "${{ github.event.inputs.download_url }}")"
-            if ! curl -o "$FILE" "${{ github.event.inputs.download_url }}"; then
-              echo "curl failed. Trying wget..."
-              if ! wget -O "$FILE" "${{ github.event.inputs.download_url }}"; then
-                echo "wget failed. Trying aria2c..."
-                aria2c -o "$FILE" "${{ github.event.inputs.download_url }}"
-              fi
-            fi
+            aria2c -o "$FILE" "${{ github.event.inputs.download_url }}"
           fi
 
           # Debug file path
