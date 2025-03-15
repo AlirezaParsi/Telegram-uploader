@@ -50,38 +50,44 @@ jobs:
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -d text="Test message from GitHub Actions"
 
-      - name: Download files
+      - name: Download and process files
         run: |
           IFS=',' read -r -a URLS <<< "${{ github.event.inputs.download_urls }}"
           for URL in "${URLS[@]}"; do
-            echo "Downloading: $URL"
+            echo "Processing URL: $URL"
 
             # Use yt-dlp if is_video is true, otherwise handle as direct/cloud link
             if [ "${{ github.event.inputs.is_video }}" = "true" ]; then
-              yt-dlp "$URL"
+              yt-dlp "$URL" || { echo "Failed to download video: $URL"; continue; }
             else
               if [[ "$URL" == *"drive.google.com"* ]]; then
-                gdown "$URL"
+                gdown "$URL" || { echo "Failed to download Google Drive file: $URL"; continue; }
               elif [[ "$URL" == *"mega.nz"* ]]; then
-                megadl "$URL" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}"
+                megadl "$URL" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" || { echo "Failed to download Mega file: $URL"; continue; }
               elif [[ "$URL" == *"dropbox.com"* ]]; then
-                curl -O "$(echo "$URL" | sed 's/dl=0/dl=1/')"
+                curl -O "$(echo "$URL" | sed 's/dl=0/dl=1/')" || { echo "Failed to download Dropbox file: $URL"; continue; }
               elif [[ "$URL" == *"onedrive.live.com"* || "$URL" == *"1drv.ms"* ]]; then
-                rclone copyurl "$URL" ./ --config ~/.config/rclone/rclone.conf
+                rclone copyurl "$URL" ./ --config ~/.config/rclone/rclone.conf || { echo "Failed to download OneDrive file: $URL"; continue; }
               else
-                curl -O "$URL"
+                curl -O "$URL" || { echo "Failed to download direct link: $URL"; continue; }
               fi
             fi
 
+            # Get the most recently downloaded file
+            FILE=$(ls -t | head -1)
+            if [ -z "$FILE" ]; then
+              echo "No file downloaded for URL: $URL"
+              continue
+            fi
+
             # Detect file type
-            FILE=$(ls -t | head -1)  # Get the most recently downloaded file
             FILE_TYPE=$(file --mime-type -b "$FILE")
             echo "File type: $FILE_TYPE"
 
             # Convert video if needed
             if echo "$FILE_TYPE" | grep -q "video"; then
               if ! echo "$FILE_TYPE" | grep -q "mp4"; then
-                ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
+                ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4" || { echo "Failed to convert video: $FILE"; continue; }
                 FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
               fi
             fi
@@ -96,7 +102,7 @@ jobs:
             fi
 
             # Upload file to Telegram using the Python script
-            python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
+            python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" || { echo "Failed to upload file: $FILE"; continue; }
 
             # Clean up
             rm -rf "$FILE"
