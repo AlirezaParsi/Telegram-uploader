@@ -1,22 +1,24 @@
-name: Modular Download and Upload to Telegram
+name: Enhanced Download and Upload to Telegram
 
 on:
   workflow_dispatch:
     inputs:
-      download_urls:
-        description: 'Comma-separated list of download URLs'
+      download_url:
+        description: 'Download URL (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
         required: true
-      is_video:
-        description: 'Is this a video?'
+      download_type:
+        description: 'Type of download (video, cloud, direct)'
         required: true
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - video
+          - cloud
+          - direct
 
 jobs:
-  download:
+  download-and-upload:
     runs-on: ubuntu-latest
-    outputs:
-      downloaded_file: ${{ steps.download_step.outputs.downloaded_file }}
+    environment: Telegram  # Reference the Telegram environment
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -25,92 +27,79 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl python3-pip ffmpeg megatools zip
+
+      - name: Install Python dependencies
+        run: |
+          pip install requests requests-toolbelt
+
+      - name: Install yt-dlp, gdown, and rclone
+        run: |
           sudo pip install yt-dlp gdown
           curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
-        
-      - name: Download files
-        id: download_step
+
+      - name: Debug Telegram credentials
         run: |
-          set -x
-          IFS=',' read -r -a URLS <<< "${{ github.event.inputs.download_urls }}"
-          for URL in "${URLS[@]}"; do
-            echo "Processing URL: $URL"
-            if [[ "${{ github.event.inputs.is_video }}" == "true" ]]; then
-              yt-dlp "$URL" || { echo "Failed to download video: $URL"; continue; }
+          echo "TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          echo "TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}"
+
+      - name: Test Telegram API
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="Test message from GitHub Actions"
+
+      - name: Download file
+        run: |
+          echo "Downloading: ${{ github.event.inputs.download_url }}"
+
+          if [[ "${{ github.event.inputs.download_type }}" == "video" ]]; then
+            # Use yt-dlp for videos
+            yt-dlp "${{ github.event.inputs.download_url }}"
+          elif [[ "${{ github.event.inputs.download_type }}" == "cloud" ]]; then
+            # Handle cloud links
+            if [[ "${{ github.event.inputs.download_url }}" == *"drive.google.com"* ]]; then
+              gdown "${{ github.event.inputs.download_url }}"
+            elif [[ "${{ github.event.inputs.download_url }}" == *"mega.nz"* ]]; then
+              megadl "${{ github.event.inputs.download_url }}" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}"
+            elif [[ "${{ github.event.inputs.download_url }}" == *"dropbox.com"* ]]; then
+              curl -O "$(echo "${{ github.event.inputs.download_url }}" | sed 's/dl=0/dl=1/')"
+            elif [[ "${{ github.event.inputs.download_url }}" == *"onedrive.live.com"* || "${{ github.event.inputs.download_url }}" == *"1drv.ms"* ]]; then
+              rclone copyurl "${{ github.event.inputs.download_url }}" ./ --config ~/.config/rclone/rclone.conf
             else
-              if [[ "$URL" == *"drive.google.com"* ]]; then
-                gdown "$URL" || { echo "Failed to download Google Drive file: $URL"; continue; }
-              elif [[ "$URL" == *"mega.nz"* ]]; then
-                megadl "$URL" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" || { echo "Failed to download Mega file: $URL"; continue; }
-              elif [[ "$URL" == *"dropbox.com"* ]]; then
-                curl -O "$(echo "$URL" | sed 's/dl=0/dl=1/')" || { echo "Failed to download Dropbox file: $URL"; continue; }
-              elif [[ "$URL" == *"onedrive.live.com"* || "$URL" == *"1drv.ms"* ]]; then
-                rclone copyurl "$URL" ./ --config ~/.config/rclone/rclone.conf || { echo "Failed to download OneDrive file: $URL"; continue; }
-              else
-                curl -O "$URL" || { echo "Failed to download direct link: $URL"; continue; }
-              fi
-            fi
-            FILE=$(ls -t | head -1)
-            if [ -z "$FILE" ]; then
-              echo "No file downloaded for URL: $URL"
-              continue
-            fi
-            FILE=$(echo "$FILE" | sed 's/^ *//') #remove leading spaces
-            echo "::set-output name=downloaded_file::$FILE"
-          done
-
-  process:
-    runs-on: ubuntu-latest
-    needs: download
-    outputs:
-      processed_file: ${{ steps.process_step.outputs.processed_file }}
-    steps:
-      - name: Process file
-        id: process_step
-        run: |
-          set -x
-          FILE="${{ needs.download.outputs.downloaded_file }}"
-          FILE_TYPE=$(file --mime-type -b "$FILE")
-          echo "File type: $FILE_TYPE"
-          if echo "$FILE_TYPE" | grep -q "video"; then
-            if ! echo "$FILE_TYPE" | grep -q "mp4"; then
-              ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4" || { echo "Failed to convert video: $FILE"; exit 1; }
-              FILE="${FILE%.*}.mp4"
-            fi
-          fi
-          echo "file is: '$FILE'" # Debugging line
-          echo "::set-output name=processed_file::$FILE"
-
-  upload:
-    runs-on: ubuntu-latest
-    needs: process
-    steps:
-      - name: Install Python dependencies
-        run: pip install requests requests-toolbelt
-      - name: Upload to Telegram
-        run: |
-          set -x
-          FILE="${{ needs.process.outputs.processed_file }}"
-          ls -l
-          pwd
-          if [ -f "$FILE" ]; then
-            FILE_SIZE=$(stat -c%s "$FILE")
-            if [[ $FILE_SIZE -gt 2000 * 1024 * 1024 ]]; then
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="❌ File is too large (>2 GB)."
+              echo "Unsupported cloud link."
               exit 1
             fi
-            python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
           else
-            echo "Error: File '$FILE' not found."
-            exit 1
+            # Handle direct links
+            curl -O "${{ github.event.inputs.download_url }}"
           fi
 
-  notify:
-    runs-on: ubuntu-latest
-    needs: upload
-    steps:
+          # Detect file type
+          FILE=$(ls -t | head -1)  # Get the most recently downloaded file
+          FILE_TYPE=$(file --mime-type -b "$FILE")
+          echo "File type: $FILE_TYPE"
+
+          # Convert video if needed
+          if echo "$FILE_TYPE" | grep -q "video"; then
+            if ! echo "$FILE_TYPE" | grep -q "mp4"; then
+              ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
+              FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
+            fi
+          fi
+
+          # Upload file to Telegram using the Python script
+          python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
+
+          # Clean up
+          rm -rf "$FILE"
+
       - name: Notify completion
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="✅ Workflow completed!"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="✅ Workflow completed! File processed."
