@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
@@ -32,8 +33,6 @@ def upload_file(file_path, bot_token, chat_id):
         print("File uploaded successfully!")
 
 if __name__ == "__main__":
-    import sys
-
     # Get arguments
     file_path = sys.argv[1]
     bot_token = sys.argv[2]
