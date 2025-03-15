@@ -44,6 +44,8 @@ async def upload_file(file_path, bot_token, chat_id):
         print(f"Failed to upload file: {e}")
     except ValueError as e:
         print(f"Error: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
     finally:
         await client.disconnect()
 
