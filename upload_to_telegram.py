@@ -7,7 +7,7 @@ from telethon.errors import RPCError
 # Function to upload file using Telethon
 async def upload_file(file_path, bot_token, chat_id):
     # Initialize the Telegram client
-    client = TelegramClient('bot_session', api_id="2040", api_hash="b18441a1ff607e10a989891a5462e627")
+    client = TelegramClient('bot_session', api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627")
     await client.start(bot_token=bot_token)
 
     try:
@@ -17,7 +17,7 @@ async def upload_file(file_path, bot_token, chat_id):
         # Extract the filename from the file path
         file_name = os.path.basename(file_path)
 
-        # Set the caption (you can customize this)
+        # Set the caption to the original filename
         caption = f"File: {file_name}"
 
         # Upload the file with the correct filename and caption
