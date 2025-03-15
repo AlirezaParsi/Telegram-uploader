@@ -56,12 +56,10 @@ jobs:
           for URL in "${URLS[@]}"; do
             echo "Downloading: $URL"
 
-            # Check if the URL is a video (using the is_video input)
+            # Use yt-dlp if is_video is true, otherwise handle as direct/cloud link
             if [ "${{ github.event.inputs.is_video }}" = "true" ]; then
-              # Use yt-dlp for videos (preserve original file name)
               yt-dlp "$URL"
             else
-              # Handle as direct/cloud link
               if [[ "$URL" == *"drive.google.com"* ]]; then
                 gdown "$URL"
               elif [[ "$URL" == *"mega.nz"* ]]; then
