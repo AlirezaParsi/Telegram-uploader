@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install requests yt-dlp gdown
+          pip install telethon yt-dlp gdown
 
       - name: Install rclone
         run: |
