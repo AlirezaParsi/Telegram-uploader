@@ -59,28 +59,29 @@ jobs:
 
           if [[ "${{ github.event.inputs.download_type }}" == "video" ]]; then
             # Use yt-dlp for videos
-            yt-dlp "${{ github.event.inputs.download_url }}"
+            yt-dlp -o "downloaded_file" "${{ github.event.inputs.download_url }}"
           elif [[ "${{ github.event.inputs.download_type }}" == "cloud" ]]; then
             # Handle cloud links
             if [[ "${{ github.event.inputs.download_url }}" == *"drive.google.com"* ]]; then
-              gdown "${{ github.event.inputs.download_url }}"
+              gdown -O downloaded_file "${{ github.event.inputs.download_url }}"
             elif [[ "${{ github.event.inputs.download_url }}" == *"mega.nz"* ]]; then
-              megadl "${{ github.event.inputs.download_url }}" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}"
+              megadl "${{ github.event.inputs.download_url }}" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" --path=downloaded_file
             elif [[ "${{ github.event.inputs.download_url }}" == *"dropbox.com"* ]]; then
-              curl -O "$(echo "${{ github.event.inputs.download_url }}" | sed 's/dl=0/dl=1/')"
+              curl -o downloaded_file "$(echo "${{ github.event.inputs.download_url }}" | sed 's/dl=0/dl=1/')"
             elif [[ "${{ github.event.inputs.download_url }}" == *"onedrive.live.com"* || "${{ github.event.inputs.download_url }}" == *"1drv.ms"* ]]; then
               rclone copyurl "${{ github.event.inputs.download_url }}" ./ --config ~/.config/rclone/rclone.conf
+              mv "$(ls -t | head -1)" downloaded_file
             else
               echo "Unsupported cloud link."
               exit 1
             fi
           else
             # Handle direct links
-            curl -O "${{ github.event.inputs.download_url }}"
+            curl -o downloaded_file "${{ github.event.inputs.download_url }}"
           fi
 
           # Detect file type
-          FILE=$(ls -t | head -1)  # Get the most recently downloaded file
+          FILE="downloaded_file"
           FILE_TYPE=$(file --mime-type -b "$FILE")
           echo "File type: $FILE_TYPE"
 
