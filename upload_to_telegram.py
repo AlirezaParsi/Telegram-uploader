@@ -10,11 +10,17 @@ async def send_message(bot_token, chat_id, text):
     client = TelegramClient('bot_session', api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627")
     await client.start(bot_token=bot_token)
     try:
-        await client.send_message(int(chat_id), text)  # Convert chat_id to integer
+        await client.send_message(int(chat_id), text, parse_mode="markdown")  # Enable Markdown formatting
     except RPCError as e:
         print(f"Failed to send message: {e}")
     finally:
         await client.disconnect()
+
+# Function to download a file from Google Drive
+def download_gdrive_file(url, output):
+    file_id = url.split("/d/")[1].split("/")[0]  # Extract file ID from URL
+    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    subprocess.run(["wget", "--no-check-certificate", "-O", output, download_url], check=True)
 
 # Function to download a file
 def download_file(download_url, download_type, mega_email, mega_password, rclone_config):
@@ -28,7 +34,8 @@ def download_file(download_url, download_type, mega_email, mega_password, rclone
         ).stdout.strip()
     elif download_type == "cloud":
         if "drive.google.com" in download_url:
-            subprocess.run(["gdown", "-O", file_name, download_url], check=True)
+            # Handle Google Drive links
+            download_gdrive_file(download_url, file_name)
         elif "mega.nz" in download_url:
             subprocess.run(
                 ["megadl", download_url, "--username", mega_email, "--password", mega_password, "--path", file_name],
@@ -61,8 +68,23 @@ def download_file(download_url, download_type, mega_email, mega_password, rclone
 
     return file_name
 
+# Function to split a file into smaller parts
+def split_file(file_path, part_size_mb=1500):
+    part_size_bytes = part_size_mb * 1024 * 1024  # Convert MB to bytes
+    file_size = os.path.getsize(file_path)
+    if file_size <= part_size_bytes:
+        return [file_path]  # No need to split
+
+    # Split the file
+    part_prefix = f"{file_path}_part_"
+    subprocess.run(["split", "-b", f"{part_size_bytes}", file_path, part_prefix], check=True)
+
+    # Get the list of parts
+    parts = sorted([f for f in os.listdir() if f.startswith(part_prefix)])
+    return parts
+
 # Function to upload a file to Telegram
-async def upload_file(file_path, bot_token, chat_id):
+async def upload_file(file_path, bot_token, chat_id, caption=None):
     # Initialize the Telegram client
     client = TelegramClient('bot_session', api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627")
     await client.start(bot_token=bot_token)
@@ -74,13 +96,9 @@ async def upload_file(file_path, bot_token, chat_id):
         # Extract the filename from the file path
         file_name = os.path.basename(file_path)
 
-        # Set the caption to the original filename
-        caption = f"File: {file_name}"
-
-        # Check file size (Telegram limit is 2 GB for bots)
-        file_size = os.path.getsize(file_path)
-        if file_size > 2000 * 1024 * 1024:  # 2 GB limit
-            raise ValueError("File size exceeds Telegram's 2 GB limit for bots.")
+        # Set the caption to the original filename if not provided
+        if caption is None:
+            caption = f"File: {file_name}"
 
         # Upload the file with the correct filename and caption
         await client.send_file(
@@ -91,7 +109,7 @@ async def upload_file(file_path, bot_token, chat_id):
             part_size_kb=512,  # Adjust chunk size for better upload performance
             force_document=True  # Force upload as a document
         )
-        print("File uploaded successfully with correct filename and caption!")
+        print(f"File part uploaded successfully: {file_name}")
     except RPCError as e:
         print(f"Failed to upload file: {e}")
     except ValueError as e:
@@ -112,8 +130,8 @@ async def main():
     mega_password = sys.argv[6]
     rclone_config = sys.argv[7]
 
-    # Notify download started
-    await send_message(bot_token, chat_id, f"📥 Download started: {download_url}")
+    # Notify download started with hyperlink
+    await send_message(bot_token, chat_id, f"📥 Download started: [Click here]({download_url})")
 
     try:
         # Download the file
@@ -126,29 +144,36 @@ async def main():
         ).stdout.split()[0]
         await send_message(
             bot_token, chat_id,
-            f"✅ Download finished: {file_path}\nSize: {file_size / 1024 / 1024:.2f} MB\nMD5: {md5_checksum}"
+            f"✅ Download finished: `{file_path}`\nSize: `{file_size / 1024 / 1024:.2f} MB`\nMD5: `{md5_checksum}`"
         )
 
-        # Notify upload started
-        await send_message(bot_token, chat_id, f"📤 Uploading to Telegram: {file_path}")
+        # Split the file into smaller parts if it's larger than 2 GB
+        parts = split_file(file_path)
+        if len(parts) > 1:
+            await send_message(bot_token, chat_id, f"📦 Splitting file into {len(parts)} parts...")
 
-        # Upload the file
-        await upload_file(file_path, bot_token, chat_id)
+        # Upload each part
+        for part in parts:
+            await send_message(bot_token, chat_id, f"📤 Uploading part: `{part}`")
+            await upload_file(part, bot_token, chat_id, caption=f"Part: `{part}`")
 
         # Notify upload finished
         await send_message(
             bot_token, chat_id,
-            f"✅ Upload finished: {file_path}\nSize: {file_size / 1024 / 1024:.2f} MB\nMD5: {md5_checksum}"
+            f"✅ Upload finished: `{file_path}`\nSize: `{file_size / 1024 / 1024:.2f} MB`\nMD5: `{md5_checksum}`"
         )
 
     except Exception as e:
         # Notify error
-        await send_message(bot_token, chat_id, f"❌ Error: {e}")
+        await send_message(bot_token, chat_id, f"❌ Error: `{e}`")
         raise e
     finally:
         # Clean up
         if os.path.exists(file_path):
             os.remove(file_path)
+        for part in parts:
+            if os.path.exists(part):
+                os.remove(part)
 
 if __name__ == "__main__":
     asyncio.run(main())
