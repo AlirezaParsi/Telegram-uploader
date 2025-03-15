@@ -6,11 +6,14 @@ on:
       download_urls:
         description: 'Comma-separated list of download URLs (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
         required: true
-      is_video:
-        description: 'Is this a video? (Toggle to enable yt-dlp for video downloads)'
+      link_type:
+        description: 'Type of link (video, cloud, or direct)'
         required: true
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - video
+          - cloud
+          - direct
 
 jobs:
   download-and-upload:
@@ -56,10 +59,12 @@ jobs:
           for URL in "${URLS[@]}"; do
             echo "Downloading: $URL"
 
-            # Use yt-dlp if is_video is true, otherwise handle as direct/cloud link
-            if [ "${{ github.event.inputs.is_video }}" = "true" ]; then
+            # Handle link based on the selected type
+            if [[ "${{ github.event.inputs.link_type }}" == "video" ]]; then
+              # Use yt-dlp for video links
               yt-dlp "$URL"
-            else
+            elif [[ "${{ github.event.inputs.link_type }}" == "cloud" ]]; then
+              # Handle cloud links
               if [[ "$URL" == *"drive.google.com"* ]]; then
                 gdown "$URL"
               elif [[ "$URL" == *"mega.nz"* ]]; then
@@ -69,8 +74,15 @@ jobs:
               elif [[ "$URL" == *"onedrive.live.com"* || "$URL" == *"1drv.ms"* ]]; then
                 rclone copyurl "$URL" ./ --config ~/.config/rclone/rclone.conf
               else
-                curl -O "$URL"
+                echo "Unsupported cloud link: $URL"
+                continue
               fi
+            elif [[ "${{ github.event.inputs.link_type }}" == "direct" ]]; then
+              # Use curl for direct links
+              curl -O "$URL"
+            else
+              echo "Invalid link type: ${{ github.event.inputs.link_type }}"
+              exit 1
             fi
 
             # Detect file type
