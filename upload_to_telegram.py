@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 import sys
 import requests
@@ -36,17 +34,9 @@ def upload_file(file_path, bot_token, chat_id):
 
 if __name__ == "__main__":
     # Get arguments
-    if len(sys.argv) != 4:
-        print("Usage: upload_to_telegram.py <file_path> <bot_token> <chat_id>")
-        sys.exit(1)
-
     file_path = sys.argv[1]
     bot_token = sys.argv[2]
     chat_id = sys.argv[3]
 
     # Upload the file
-    try:
-        upload_file(file_path, bot_token, chat_id)
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    upload_file(file_path, bot_token, chat_id)
