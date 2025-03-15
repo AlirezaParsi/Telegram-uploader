@@ -1,21 +1,22 @@
-name: Enhanced Download and Upload to Telegram
+name: Modular Download and Upload to Telegram
 
 on:
   workflow_dispatch:
     inputs:
       download_urls:
-        description: 'Comma-separated list of download URLs (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
+        description: 'Comma-separated list of download URLs'
         required: true
       is_video:
-        description: 'Is this a video? (Toggle to enable yt-dlp for video downloads)'
+        description: 'Is this a video?'
         required: true
         type: boolean
         default: false
 
 jobs:
-  download-and-upload:
+  download:
     runs-on: ubuntu-latest
-    environment: Telegram  # Reference the Telegram environment
+    outputs:
+      downloaded_file: ${{ steps.download_step.outputs.downloaded_file }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -24,40 +25,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl python3-pip ffmpeg megatools zip
-
-      - name: Install Python dependencies
-        run: |
-          pip install requests requests-toolbelt
-
-      - name: Install yt-dlp, gdown, and rclone
-        run: |
           sudo pip install yt-dlp gdown
           curl https://rclone.org/install.sh | sudo bash
-
-      - name: Configure rclone
-        run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
-
-      - name: Debug Telegram credentials
+        
+      - name: Download files
+        id: download_step
         run: |
-          echo "TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          echo "TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}"
-
-      - name: Test Telegram API
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="Test message from GitHub Actions"
-
-      - name: Download and process files
-        run: |
-          set -x  # Enable debug mode
+          set -x
           IFS=',' read -r -a URLS <<< "${{ github.event.inputs.download_urls }}"
           for URL in "${URLS[@]}"; do
             echo "Processing URL: $URL"
-
-            # Evaluate is_video as a boolean
             if [[ "${{ github.event.inputs.is_video }}" == "true" ]]; then
               yt-dlp "$URL" || { echo "Failed to download video: $URL"; continue; }
             else
@@ -73,44 +52,56 @@ jobs:
                 curl -O "$URL" || { echo "Failed to download direct link: $URL"; continue; }
               fi
             fi
-
-            # Get the most recently downloaded file
             FILE=$(ls -t | head -1)
             if [ -z "$FILE" ]; then
               echo "No file downloaded for URL: $URL"
               continue
             fi
-
-            # Detect file type
-            FILE_TYPE=$(file --mime-type -b "$FILE")
-            echo "File type: $FILE_TYPE"
-
-            # Convert video if needed
-            if echo "$FILE_TYPE" | grep -q "video"; then
-              if ! echo "$FILE_TYPE" | grep -q "mp4"; then
-                ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4" || { echo "Failed to convert video: $FILE"; continue; }
-                FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
-              fi
-            fi
-
-            # Check file size
-            FILE_SIZE=$(stat -c%s "$FILE")
-            if [[ $FILE_SIZE -gt 2000 * 1024 * 1024 ]]; then
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-              -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d text="❌ File is too large (>2 GB). Cannot upload to Telegram."
-              continue
-            fi
-
-            # Upload file to Telegram using the Python script
-            python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" || { echo "Failed to upload file: $FILE"; continue; }
-
-            # Clean up
-            rm -rf "$FILE"
+            echo "::set-output name=downloaded_file::$FILE"
           done
 
+  process:
+    runs-on: ubuntu-latest
+    needs: download
+    outputs:
+      processed_file: ${{ steps.process_step.outputs.processed_file }}
+    steps:
+      - name: Process file
+        id: process_step
+        run: |
+          set -x
+          FILE="${{ needs.download.outputs.downloaded_file }}"
+          FILE_TYPE=$(file --mime-type -b "$FILE")
+          echo "File type: $FILE_TYPE"
+          if echo "$FILE_TYPE" | grep -q "video"; then
+            if ! echo "$FILE_TYPE" | grep -q "mp4"; then
+              ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4" || { echo "Failed to convert video: $FILE"; exit 1; }
+              FILE="${FILE%.*}.mp4"
+            fi
+          fi
+          echo "::set-output name=processed_file::$FILE"
+
+  upload:
+    runs-on: ubuntu-latest
+    needs: process
+    steps:
+      - name: Install Python dependencies
+        run: pip install requests requests-toolbelt
+      - name: Upload to Telegram
+        run: |
+          set -x
+          FILE="${{ needs.process.outputs.processed_file }}"
+          FILE_SIZE=$(stat -c%s "$FILE")
+          if [[ $FILE_SIZE -gt 2000 * 1024 * 1024 ]]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="❌ File is too large (>2 GB)."
+            exit 1
+          fi
+          python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: upload
+    steps:
       - name: Notify completion
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="✅ Workflow completed! All files processed."
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="✅ Workflow completed!"
