@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install telethon yt-dlp gdown
+          pip install telethon yt-dlp gdown requests
 
       - name: Install rclone
         run: |
@@ -57,29 +57,33 @@ jobs:
           echo "Downloading: ${{ github.event.inputs.download_url }}"
           if [[ "${{ github.event.inputs.download_type }}" == "video" ]]; then
             # Use yt-dlp for videos
-            yt-dlp -o "downloaded_file" "${{ github.event.inputs.download_url }}"
+            yt-dlp -o "%(title)s.%(ext)s" "${{ github.event.inputs.download_url }}"
+            FILE="$(yt-dlp --get-filename -o "%(title)s.%(ext)s" "${{ github.event.inputs.download_url }}")"
           elif [[ "${{ github.event.inputs.download_type }}" == "cloud" ]]; then
             # Handle cloud links
             if [[ "${{ github.event.inputs.download_url }}" == *"drive.google.com"* ]]; then
-              gdown -O downloaded_file "${{ github.event.inputs.download_url }}"
+              gdown -O "$(basename "${{ github.event.inputs.download_url }}")" "${{ github.event.inputs.download_url }}"
+              FILE="$(basename "${{ github.event.inputs.download_url }}")"
             elif [[ "${{ github.event.inputs.download_url }}" == *"mega.nz"* ]]; then
-              megadl "${{ github.event.inputs.download_url }}" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" --path=downloaded_file
+              megadl "${{ github.event.inputs.download_url }}" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" --path="$(basename "${{ github.event.inputs.download_url }}")"
+              FILE="$(basename "${{ github.event.inputs.download_url }}")"
             elif [[ "${{ github.event.inputs.download_url }}" == *"dropbox.com"* ]]; then
-              curl -o downloaded_file "$(echo "${{ github.event.inputs.download_url }}" | sed 's/dl=0/dl=1/')"
+              curl -o "$(basename "${{ github.event.inputs.download_url }}")" "$(echo "${{ github.event.inputs.download_url }}" | sed 's/dl=0/dl=1/')"
+              FILE="$(basename "${{ github.event.inputs.download_url }}")"
             elif [[ "${{ github.event.inputs.download_url }}" == *"onedrive.live.com"* || "${{ github.event.inputs.download_url }}" == *"1drv.ms"* ]]; then
               rclone copyurl "${{ github.event.inputs.download_url }}" ./ --config ~/.config/rclone/rclone.conf
-              mv "$(ls -t | head -1)" downloaded_file
+              FILE="$(ls -t | head -1)"
             else
               echo "Unsupported cloud link."
               exit 1
             fi
           else
             # Handle direct links
-            curl -o downloaded_file "${{ github.event.inputs.download_url }}"
+            curl -o "$(basename "${{ github.event.inputs.download_url }}")" "${{ github.event.inputs.download_url }}"
+            FILE="$(basename "${{ github.event.inputs.download_url }}")"
           fi
 
           # Detect file type
-          FILE="downloaded_file"
           FILE_TYPE=$(file --mime-type -b "$FILE")
           echo "File type: $FILE_TYPE"
 
@@ -90,6 +94,10 @@ jobs:
               FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
             fi
           fi
+
+          # Debug file path and name
+          echo "File path: $FILE"
+          echo "File name: $(basename "$FILE")"
 
           # Upload file to Telegram using the Python script
           python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
