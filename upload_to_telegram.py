@@ -1,42 +1,43 @@
 import os
 import sys
-import requests
-from requests_toolbelt.multipart.encoder import MultipartEncoder
+from telethon import TelegramClient
+from telethon.tl.functions.messages import SendMediaRequest
+from telethon.tl.types import InputMediaUploadedDocument
 
-def upload_file(file_path, bot_token, chat_id):
-    # Check file size
-    file_size = os.path.getsize(file_path)
-    if file_size > 2000 * 1024 * 1024:  # 2 GB limit
-        raise ValueError("File size exceeds Telegram's 2 GB limit.")
+async def upload_file(file_path, bot_token, chat_id):
+    # Create a Telegram client
+    client = TelegramClient('session_name', api_id=1, api_hash=54448a70ac7efd5cf70df608ec85cc8a)  # Replace with your API ID and hash
+    await client.start(bot_token=bot_token)
 
-    # Open the file in binary mode
-    with open(file_path, "rb") as file:
-        # Create a multipart encoder for chunked uploads
-        multipart_data = MultipartEncoder(
-            fields={
-                "chat_id": chat_id,
-                "document": (os.path.basename(file_path), file, "application/octet-stream"),
-            }
+    try:
+        # Upload the file
+        file = await client.upload_file(file_path)
+        media = InputMediaUploadedDocument(
+            file=file,
+            mime_type='application/octet-stream',
+            attributes=[],
+            thumb=None,
         )
 
-        # Send the file to Telegram
-        response = requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendDocument",
-            data=multipart_data,
-            headers={"Content-Type": multipart_data.content_type},
-        )
-
-    # Check the response
-    if response.status_code != 200:
-        raise Exception(f"Failed to upload file: {response.text}")
-    else:
+        # Send the file to the chat
+        await client(SendMediaRequest(
+            peer=chat_id,
+            media=media,
+            message="File uploaded from GitHub Actions",
+        ))
         print("File uploaded successfully!")
+    except Exception as e:
+        print(f"Failed to upload file: {e}")
+    finally:
+        await client.disconnect()
 
 if __name__ == "__main__":
+    import asyncio
+
     # Get arguments
     file_path = sys.argv[1]
     bot_token = sys.argv[2]
     chat_id = sys.argv[3]
 
-    # Upload the file
-    upload_file(file_path, bot_token, chat_id)
+    # Run the upload function
+    asyncio.run(upload_file(file_path, bot_token, chat_id))
