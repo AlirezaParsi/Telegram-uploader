@@ -1,0 +1,126 @@
+name: Enhanced Download and Upload to Telegram
+
+on:
+  workflow_dispatch:
+    inputs:
+      download_urls:
+        description: 'Comma-separated list of download URLs (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
+        required: true
+      is_video:
+        description: 'Set to "true" if the URLs are videos (uses yt-dlp). Otherwise, handles as direct/cloud links.'
+        required: true
+        default: 'false'
+      custom_name:
+        description: 'Custom file name (optional)'
+        required: false
+        default: 'downloaded_file'
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl python3-pip ffmpeg megatools zip imagemagick
+
+      - name: Install yt-dlp, gdown, and rclone
+        run: |
+          sudo pip install yt-dlp gdown
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+
+      - name: Notify start
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="🚀 Workflow started! Downloading files..."
+
+      - name: Download files
+        run: |
+          IFS=',' read -r -a URLS <<< "${{ github.event.inputs.download_urls }}"
+          for URL in "${URLS[@]}"; do
+            echo "Downloading: $URL"
+
+            if [[ "${{ github.event.inputs.is_video }}" == "true" ]]; then
+              # Use yt-dlp for videos
+              yt-dlp -o "file.%(ext)s" "$URL"
+            else
+              # Handle as direct/cloud link
+              if [[ "$URL" == *"drive.google.com"* ]]; then
+                gdown "$URL" -O file
+              elif [[ "$URL" == *"mega.nz"* ]]; then
+                megadl "$URL" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" --path=file
+              elif [[ "$URL" == *"dropbox.com"* ]]; then
+                curl -o file "$(echo "$URL" | sed 's/dl=0/dl=1/')"
+              elif [[ "$URL" == *"onedrive.live.com"* || "$URL" == *"1drv.ms"* ]]; then
+                rclone copyurl "$URL" ./ --config ~/.config/rclone/rclone.conf
+                mv "$(ls)" file
+              else
+                curl -o file "$URL"
+              fi
+            fi
+
+            # Rename file if custom name is provided
+            if [[ -n "${{ github.event.inputs.custom_name }}" ]]; then
+              mv file "${{ github.event.inputs.custom_name }}"
+            fi
+
+            # Detect file type
+            FILE_TYPE=$(file --mime-type -b file)
+            echo "File type: $FILE_TYPE"
+
+            # Convert video if needed
+            if [[ "$FILE_TYPE" == *"video"* && "$FILE_TYPE" != *"mp4"* ]]; then
+              ffmpeg -i file -c:v libx264 -c:a aac file.mp4
+              mv file.mp4 file
+            fi
+
+            # Generate thumbnail for videos
+            if [[ "$FILE_TYPE" == *"video"* ]]; then
+              ffmpeg -i file -ss 00:00:01 -vframes 1 thumbnail.jpg
+            fi
+
+            # Check file size
+            FILE_SIZE=$(stat -c%s file)
+            if [[ $FILE_SIZE -gt 2000000000 ]]; then
+              curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+              -d chat_id="$TELEGRAM_CHAT_ID" \
+              -d text="❌ File is too large (>2 GB). Cannot upload to Telegram."
+              continue
+            fi
+
+            # Upload file to Telegram
+            FILE_NAME=$(basename file)
+            curl -F chat_id="$TELEGRAM_CHAT_ID" \
+            -F document=@file \
+            -F caption="File: $FILE_NAME" \
+            https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument
+
+            # Upload thumbnail if available
+            if [[ -f thumbnail.jpg ]]; then
+              curl -F chat_id="$TELEGRAM_CHAT_ID" \
+              -F photo=@thumbnail.jpg \
+              https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendPhoto
+              rm thumbnail.jpg
+            fi
+
+            # Clean up
+            rm -rf file
+          done
+
+      - name: Notify completion
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="✅ Workflow completed! All files processed."
