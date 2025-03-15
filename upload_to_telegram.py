@@ -1,9 +1,10 @@
 import os
 import sys
+import asyncio
 from telegram import Bot
 from telegram.error import TelegramError
 
-def upload_file(file_path, bot_token, chat_id):
+async def upload_file(file_path, bot_token, chat_id):
     # Check file size
     file_size = os.path.getsize(file_path)
     if file_size > 2000 * 1024 * 1024:  # 2 GB limit
@@ -15,7 +16,7 @@ def upload_file(file_path, bot_token, chat_id):
     try:
         # Upload the file
         with open(file_path, "rb") as file:
-            bot.send_document(chat_id=chat_id, document=file)
+            await bot.send_document(chat_id=chat_id, document=file)
         print("File uploaded successfully!")
     except TelegramError as e:
         print(f"Failed to upload file: {e}")
@@ -26,5 +27,5 @@ if __name__ == "__main__":
     bot_token = sys.argv[2]
     chat_id = sys.argv[3]
 
-    # Upload the file
-    upload_file(file_path, bot_token, chat_id)
+    # Run the async function
+    asyncio.run(upload_file(file_path, bot_token, chat_id))
