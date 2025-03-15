@@ -23,7 +23,8 @@ def extract_gdrive_file_id(url):
     patterns = [
         r"/file/d/([a-zA-Z0-9_-]+)",  # Standard URL format
         r"id=([a-zA-Z0-9_-]+)",       # Export URL format
-        r"open\?id=([a-zA-Z0-9_-]+)"  # Open URL format
+        r"open\?id=([a-zA-Z0-9_-]+)",  # Open URL format
+        r"download\?id=([a-zA-Z0-9_-]+)"  # Download URL format
     ]
     for pattern in patterns:
         match = re.search(pattern, url)
@@ -48,7 +49,7 @@ def download_file(download_url, download_type, mega_email, mega_password, rclone
             capture_output=True, text=True
         ).stdout.strip()
     elif download_type == "cloud":
-        if "drive.google.com" in download_url:
+        if "drive.google.com" in download_url or "google.com" in download_url:
             # Handle Google Drive links
             download_gdrive_file(download_url, file_name)
         elif "mega.nz" in download_url:
