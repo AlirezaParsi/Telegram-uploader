@@ -3,11 +3,11 @@ name: Enhanced Download and Upload to Telegram
 on:
   workflow_dispatch:
     inputs:
-      download_urls:
-        description: 'Comma-separated list of download URLs (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
+      download_url:
+        description: 'Download URL (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
         required: true
-      link_type:
-        description: 'Type of link (video, cloud, or direct)'
+      download_type:
+        description: 'Type of download (video, cloud, direct)'
         required: true
         type: choice
         options:
@@ -53,69 +53,53 @@ jobs:
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -d text="Test message from GitHub Actions"
 
-      - name: Download files
+      - name: Download file
         run: |
-          IFS=',' read -r -a URLS <<< "${{ github.event.inputs.download_urls }}"
-          for URL in "${URLS[@]}"; do
-            echo "Downloading: $URL"
-
-            # Handle link based on the selected type
-            if [[ "${{ github.event.inputs.link_type }}" == "video" ]]; then
-              # Use yt-dlp for video links
-              yt-dlp "$URL"
-            elif [[ "${{ github.event.inputs.link_type }}" == "cloud" ]]; then
-              # Handle cloud links
-              if [[ "$URL" == *"drive.google.com"* ]]; then
-                gdown "$URL"
-              elif [[ "$URL" == *"mega.nz"* ]]; then
-                megadl "$URL" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}"
-              elif [[ "$URL" == *"dropbox.com"* ]]; then
-                curl -O "$(echo "$URL" | sed 's/dl=0/dl=1/')"
-              elif [[ "$URL" == *"onedrive.live.com"* || "$URL" == *"1drv.ms"* ]]; then
-                rclone copyurl "$URL" ./ --config ~/.config/rclone/rclone.conf
-              else
-                echo "Unsupported cloud link: $URL"
-                continue
-              fi
-            elif [[ "${{ github.event.inputs.link_type }}" == "direct" ]]; then
-              # Use curl for direct links
-              curl -O "$URL"
+          echo "Downloading: ${{ github.event.inputs.download_url }}"
+          if [[ "${{ github.event.inputs.download_type }}" == "video" ]]; then
+            # Use yt-dlp for videos
+            yt-dlp -o "downloaded_file" "${{ github.event.inputs.download_url }}"
+          elif [[ "${{ github.event.inputs.download_type }}" == "cloud" ]]; then
+            # Handle cloud links
+            if [[ "${{ github.event.inputs.download_url }}" == *"drive.google.com"* ]]; then
+              gdown -O downloaded_file "${{ github.event.inputs.download_url }}"
+            elif [[ "${{ github.event.inputs.download_url }}" == *"mega.nz"* ]]; then
+              megadl "${{ github.event.inputs.download_url }}" --username="${{ secrets.MEGA_EMAIL }}" --password="${{ secrets.MEGA_PASSWORD }}" --path=downloaded_file
+            elif [[ "${{ github.event.inputs.download_url }}" == *"dropbox.com"* ]]; then
+              curl -o downloaded_file "$(echo "${{ github.event.inputs.download_url }}" | sed 's/dl=0/dl=1/')"
+            elif [[ "${{ github.event.inputs.download_url }}" == *"onedrive.live.com"* || "${{ github.event.inputs.download_url }}" == *"1drv.ms"* ]]; then
+              rclone copyurl "${{ github.event.inputs.download_url }}" ./ --config ~/.config/rclone/rclone.conf
+              mv "$(ls -t | head -1)" downloaded_file
             else
-              echo "Invalid link type: ${{ github.event.inputs.link_type }}"
+              echo "Unsupported cloud link."
               exit 1
             fi
+          else
+            # Handle direct links
+            curl -o downloaded_file "${{ github.event.inputs.download_url }}"
+          fi
 
-            # Detect file type
-            FILE=$(ls -t | head -1)  # Get the most recently downloaded file
-            FILE_TYPE=$(file --mime-type -b "$FILE")
-            echo "File type: $FILE_TYPE"
+          # Detect file type
+          FILE="downloaded_file"
+          FILE_TYPE=$(file --mime-type -b "$FILE")
+          echo "File type: $FILE_TYPE"
 
-            # Convert video if needed
-            if echo "$FILE_TYPE" | grep -q "video"; then
-              if ! echo "$FILE_TYPE" | grep -q "mp4"; then
-                ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
-                FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
-              fi
+          # Convert video if needed
+          if echo "$FILE_TYPE" | grep -q "video"; then
+            if ! echo "$FILE_TYPE" | grep -q "mp4"; then
+              ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
+              FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
             fi
+          fi
 
-            # Check file size
-            FILE_SIZE=$(stat -c%s "$FILE")
-            if [[ $FILE_SIZE -gt 2000 * 1024 * 1024 ]]; then
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-              -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d text="❌ File is too large (>2 GB). Cannot upload to Telegram."
-              continue
-            fi
+          # Upload file to Telegram using the Python script
+          python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
 
-            # Upload file to Telegram using the Python script
-            python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
-
-            # Clean up
-            rm -rf "$FILE"
-          done
+          # Clean up
+          rm -rf "$FILE"
 
       - name: Notify completion
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="✅ Workflow completed! All files processed."
+          -d text="✅ Workflow completed! File processed."
