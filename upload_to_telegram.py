@@ -6,6 +6,11 @@ from telethon.errors import RPCError
 
 # Function to upload file using Telethon
 async def upload_file(file_path, bot_token, chat_id):
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        print(f"Error: File not found: {file_path}")
+        return
+
     # Initialize the Telegram client
     client = TelegramClient('bot_session', api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627")
     await client.start(bot_token=bot_token)
