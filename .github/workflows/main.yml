@@ -7,20 +7,15 @@ on:
         description: 'Comma-separated list of download URLs (YouTube, Google Drive, Mega, Dropbox, OneDrive, Direct Link, etc.)'
         required: true
       is_video:
-        description: 'Is this a video? (Toggle between "yes" and "no")'
+        description: 'Is this a video? (Toggle to enable yt-dlp for video downloads)'
         required: true
-        default: 'no'
-        type: choice
-        options:
-          - yes
-          - no
+        type: boolean
+        default: false
 
 jobs:
   download-and-upload:
     runs-on: ubuntu-latest
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    environment: Telegram  # Reference the Telegram environment
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -40,11 +35,16 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
 
-      - name: Notify start
+      - name: Debug Telegram credentials
         run: |
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-          -d chat_id="$TELEGRAM_CHAT_ID" \
-          -d text="🚀 Workflow started! Downloading files..."
+          echo "TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          echo "TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}"
+
+      - name: Test Telegram API
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="Test message from GitHub Actions"
 
       - name: Download files
         run: |
@@ -52,7 +52,7 @@ jobs:
           for URL in "${URLS[@]}"; do
             echo "Downloading: $URL"
 
-            if [[ "${{ github.event.inputs.is_video }}" == "yes" ]]; then
+            if [[ "${{ github.event.inputs.is_video }}" == "true" ]]; then
               # Use yt-dlp for videos (preserve original file name)
               yt-dlp "$URL"
             else
@@ -89,23 +89,23 @@ jobs:
             # Check file size
             FILE_SIZE=$(stat -c%s "$FILE")
             if [[ $FILE_SIZE -gt 2000000000 ]]; then
-              curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
+              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
               -d text="❌ File is too large (>2 GB). Cannot upload to Telegram."
               continue
             fi
 
             # Upload file to Telegram
-            curl -F chat_id="$TELEGRAM_CHAT_ID" \
+            curl -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -F document=@"$FILE" \
             -F caption="File: $FILE" \
-            https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument
+            https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
 
             # Upload thumbnail if available
             if [[ -f "${FILE%.*}_thumbnail.jpg" ]]; then
-              curl -F chat_id="$TELEGRAM_CHAT_ID" \
+              curl -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
               -F photo=@"${FILE%.*}_thumbnail.jpg" \
-              https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendPhoto
+              https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto
               rm "${FILE%.*}_thumbnail.jpg"
             fi
 
@@ -115,6 +115,6 @@ jobs:
 
       - name: Notify completion
         run: |
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-          -d chat_id="$TELEGRAM_CHAT_ID" \
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -d text="✅ Workflow completed! All files processed."
