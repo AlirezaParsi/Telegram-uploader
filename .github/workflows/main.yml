@@ -57,7 +57,7 @@ jobs:
             echo "Downloading: $URL"
 
             # Check if the URL is a video (using the is_video input)
-            if [[ "${{ github.event.inputs.is_video }}" == "true" ]]; then
+            if [ "${{ github.event.inputs.is_video }}" = "true" ]; then
               # Use yt-dlp for videos (preserve original file name)
               yt-dlp "$URL"
             else
