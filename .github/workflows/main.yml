@@ -46,11 +46,11 @@ jobs:
           echo "TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}"
           echo "TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}"
 
-      - name: Test Telegram API
+      - name: Notify download started
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="Upload started"
+          -d text="📥 Download started: ${{ github.event.inputs.download_url }}"
 
       - name: Download file
         run: |
@@ -83,30 +83,31 @@ jobs:
             FILE="$(basename "${{ github.event.inputs.download_url }}")"
           fi
 
-          # Detect file type
-          FILE_TYPE=$(file --mime-type -b "$FILE")
-          echo "File type: $FILE_TYPE"
+          # Notify download finished
+          FILE_SIZE=$(stat -c%s "$FILE")
+          MD5_CHECKSUM=$(md5sum "$FILE" | awk '{ print $1 }')
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="✅ Download finished: $FILE\nSize: $((FILE_SIZE / 1024 / 1024)) MB\nMD5: $MD5_CHECKSUM"
 
-          # Convert video if needed
-          if echo "$FILE_TYPE" | grep -q "video"; then
-            if ! echo "$FILE_TYPE" | grep -q "mp4"; then
-              ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
-              FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
-            fi
-          fi
-
-          # Debug file path and name
-          echo "File path: $FILE"
-          echo "File name: $(basename "$FILE")"
-
-          # Upload file to Telegram using the Python script
-          python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
-
-          # Clean up
-          rm -rf "$FILE"
-
-      - name: Notify completion
+      - name: Notify upload started
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="✅ Workflow completed! File processed."
+          -d text="📤 Uploading to Telegram: $FILE"
+
+      - name: Upload file to Telegram
+        run: |
+          python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
+
+      - name: Notify upload finished
+        run: |
+          FILE_SIZE=$(stat -c%s "$FILE")
+          MD5_CHECKSUM=$(md5sum "$FILE" | awk '{ print $1 }')
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="✅ Upload finished: $FILE\nSize: $((FILE_SIZE / 1024 / 1024)) MB\nMD5: $MD5_CHECKSUM"
+
+      - name: Clean up
+        run: |
+          rm -rf "$FILE"
