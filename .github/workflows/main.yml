@@ -91,12 +91,19 @@ jobs:
         run: |
           set -x
           FILE="${{ needs.process.outputs.processed_file }}"
-          FILE_SIZE=$(stat -c%s "$FILE")
-          if [[ $FILE_SIZE -gt 2000 * 1024 * 1024 ]]; then
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="❌ File is too large (>2 GB)."
+          ls -l
+          pwd
+          if [ -f "$FILE" ]; then
+            FILE_SIZE=$(stat -c%s "$FILE")
+            if [[ $FILE_SIZE -gt 2000 * 1024 * 1024 ]]; then
+              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="❌ File is too large (>2 GB)."
+              exit 1
+            fi
+            python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
+          else
+            echo "Error: File '$FILE' not found."
             exit 1
           fi
-          python3 upload_to_telegram.py "$FILE" "${{ secrets.TELEGRAM_BOT_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}"
 
   notify:
     runs-on: ubuntu-latest
