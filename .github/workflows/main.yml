@@ -57,6 +57,7 @@ jobs:
               echo "No file downloaded for URL: $URL"
               continue
             fi
+            FILE=$(echo "$FILE" | sed 's/^ *//') #remove leading spaces
             echo "::set-output name=downloaded_file::$FILE"
           done
 
@@ -79,7 +80,7 @@ jobs:
               FILE="${FILE%.*}.mp4"
             fi
           fi
-          echo "file is $FILE"
+          echo "file is: '$FILE'" # Debugging line
           echo "::set-output name=processed_file::$FILE"
 
   upload:
