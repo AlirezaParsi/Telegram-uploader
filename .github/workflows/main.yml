@@ -23,7 +23,7 @@ jobs:
       - name: Set up environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl python3-pip ffmpeg megatools zip imagemagick
+          sudo apt-get install -y curl python3-pip ffmpeg megatools zip
 
       - name: Install yt-dlp, gdown, and rclone
         run: |
@@ -81,11 +81,6 @@ jobs:
               FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
             fi
 
-            # Generate thumbnail for videos
-            if [[ "$FILE_TYPE" == *"video"* ]]; then
-              ffmpeg -i "$FILE" -ss 00:00:01 -vframes 1 "${FILE%.*}_thumbnail.jpg"
-            fi
-
             # Check file size
             FILE_SIZE=$(stat -c%s "$FILE")
             if [[ $FILE_SIZE -gt 2000000000 ]]; then
@@ -96,17 +91,18 @@ jobs:
             fi
 
             # Upload file to Telegram
-            curl -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -F document=@"$FILE" \
-            -F caption="File: $FILE" \
-            https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
-
-            # Upload thumbnail if available
-            if [[ -f "${FILE%.*}_thumbnail.jpg" ]]; then
+            if [[ "$FILE_TYPE" == *"video"* ]]; then
+              # Use sendVideo for video files
               curl -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -F photo=@"${FILE%.*}_thumbnail.jpg" \
-              https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto
-              rm "${FILE%.*}_thumbnail.jpg"
+              -F video=@"$FILE" \
+              -F caption="File: $FILE" \
+              https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendVideo
+            else
+              # Use sendDocument for non-video files
+              curl -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -F document=@"$FILE" \
+              -F caption="File: $FILE" \
+              https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
             fi
 
             # Clean up
