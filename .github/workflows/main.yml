@@ -79,6 +79,7 @@ jobs:
               FILE="${FILE%.*}.mp4"
             fi
           fi
+          echo "file is $FILE"
           echo "::set-output name=processed_file::$FILE"
 
   upload:
