@@ -3,6 +3,7 @@ import sys
 import asyncio
 import subprocess
 import re
+import gdown  # Add gdown for Google Drive downloads
 from telethon import TelegramClient
 from telethon.errors import RPCError
 
@@ -32,11 +33,10 @@ def extract_gdrive_file_id(url):
             return match.group(1)
     raise ValueError("Invalid Google Drive URL format")
 
-# Function to download a file from Google Drive
+# Function to download a file from Google Drive using gdown
 def download_gdrive_file(url, output):
     file_id = extract_gdrive_file_id(url)  # Extract file ID from URL
-    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    subprocess.run(["wget", "--no-check-certificate", "-O", output, download_url], check=True)
+    gdown.download(f"https://drive.google.com/uc?id={file_id}", output, quiet=False)
 
 # Function to download a file
 def download_file(download_url, download_type, mega_email, mega_password, rclone_config):
@@ -50,7 +50,7 @@ def download_file(download_url, download_type, mega_email, mega_password, rclone
         ).stdout.strip()
     elif download_type == "cloud":
         if "drive.google.com" in download_url or "google.com" in download_url:
-            # Handle Google Drive links
+            # Handle Google Drive links using gdown
             download_gdrive_file(download_url, file_name)
         elif "mega.nz" in download_url:
             subprocess.run(
