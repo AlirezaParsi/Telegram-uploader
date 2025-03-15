@@ -79,9 +79,11 @@ jobs:
             echo "File type: $FILE_TYPE"
 
             # Convert video if needed
-            if [[ "$FILE_TYPE" == *"video"* && "$FILE_TYPE" != *"mp4"* ]]; then
-              ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
-              FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
+            if echo "$FILE_TYPE" | grep -q "video"; then
+              if ! echo "$FILE_TYPE" | grep -q "mp4"; then
+                ffmpeg -i "$FILE" -c:v libx264 -c:a aac "${FILE%.*}.mp4"
+                FILE="${FILE%.*}.mp4"  # Update FILE variable to point to the converted file
+              fi
             fi
 
             # Check file size
