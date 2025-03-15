@@ -30,11 +30,10 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install python-telegram-bot
+          pip install requests yt-dlp gdown
 
-      - name: Install yt-dlp, gdown, and rclone
+      - name: Install rclone
         run: |
-          sudo pip install yt-dlp gdown
           curl https://rclone.org/install.sh | sudo bash
 
       - name: Configure rclone
