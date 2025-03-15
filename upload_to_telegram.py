@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import subprocess
+import re
 from telethon import TelegramClient
 from telethon.errors import RPCError
 
@@ -16,9 +17,23 @@ async def send_message(bot_token, chat_id, text):
     finally:
         await client.disconnect()
 
+# Function to extract file ID from Google Drive URL
+def extract_gdrive_file_id(url):
+    # Handle different Google Drive URL formats
+    patterns = [
+        r"/file/d/([a-zA-Z0-9_-]+)",  # Standard URL format
+        r"id=([a-zA-Z0-9_-]+)",       # Export URL format
+        r"open\?id=([a-zA-Z0-9_-]+)"  # Open URL format
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    raise ValueError("Invalid Google Drive URL format")
+
 # Function to download a file from Google Drive
 def download_gdrive_file(url, output):
-    file_id = url.split("/d/")[1].split("/")[0]  # Extract file ID from URL
+    file_id = extract_gdrive_file_id(url)  # Extract file ID from URL
     download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
     subprocess.run(["wget", "--no-check-certificate", "-O", output, download_url], check=True)
 
@@ -130,10 +145,14 @@ async def main():
     mega_password = sys.argv[6]
     rclone_config = sys.argv[7]
 
-    # Notify download started with hyperlink
-    await send_message(bot_token, chat_id, f"📥 Download started: [Click here]({download_url})")
+    # Initialize file_path to avoid UnboundLocalError
+    file_path = None
+    parts = []
 
     try:
+        # Notify download started with hyperlink
+        await send_message(bot_token, chat_id, f"📥 Download started: [Click here]({download_url})")
+
         # Download the file
         file_path = download_file(download_url, download_type, mega_email, mega_password, rclone_config)
 
@@ -169,7 +188,7 @@ async def main():
         raise e
     finally:
         # Clean up
-        if os.path.exists(file_path):
+        if file_path and os.path.exists(file_path):
             os.remove(file_path)
         for part in parts:
             if os.path.exists(part):
