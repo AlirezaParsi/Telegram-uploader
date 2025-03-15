@@ -12,7 +12,7 @@ def upload_file(file_path, bot_token, chat_id):
 
     async def main():
         try:
-            # Connect to Telegram
+            # Connect to Telegram using the bot token
             await client.start(bot_token=bot_token)
 
             # Upload the file
