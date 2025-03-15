@@ -10,7 +10,7 @@ async def send_message(bot_token, chat_id, text):
     client = TelegramClient('bot_session', api_id=2040, api_hash="b18441a1ff607e10a989891a5462e627")
     await client.start(bot_token=bot_token)
     try:
-        await client.send_message(chat_id, text)
+        await client.send_message(int(chat_id), text)  # Convert chat_id to integer
     except RPCError as e:
         print(f"Failed to send message: {e}")
     finally:
