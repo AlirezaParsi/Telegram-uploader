@@ -52,12 +52,13 @@ jobs:
 
       - name: Download and process files
         run: |
+          set -x  # Enable debug mode
           IFS=',' read -r -a URLS <<< "${{ github.event.inputs.download_urls }}"
           for URL in "${URLS[@]}"; do
             echo "Processing URL: $URL"
 
-            # Use yt-dlp if is_video is true, otherwise handle as direct/cloud link
-            if [ "${{ github.event.inputs.is_video }}" = "true" ]; then
+            # Evaluate is_video as a boolean
+            if [[ "${{ github.event.inputs.is_video }}" == "true" ]]; then
               yt-dlp "$URL" || { echo "Failed to download video: $URL"; continue; }
             else
               if [[ "$URL" == *"drive.google.com"* ]]; then
